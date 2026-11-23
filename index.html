@@ -584,6 +584,7 @@ function home(){
 }
 
 /* ======================= RITUAL ======================= */
+const ritualMode=()=>P.mode||(new Date().getDay()===4?'new':'add');
 function ritual(){
   const cw=curWeek();
   if(!R){ // Startfrage
@@ -591,8 +592,9 @@ function ritual(){
     ${sceneHTML({moon:true})}
     <div class="card">
       ${cw?`<p>Neue Lektion, neues Gebiet? Oder willst du Wörter zum Rudel von <b>${esc(region(cw).name)}</b> hinzufügen?</p>
-      <div class="grid2" style="margin:10px 0"><button class="btn ${P.mode!=='add'?'primary':''}" data-a="rmode" data-m="new">🗺️ Neues Rudel</button>
-      <button class="btn ${P.mode==='add'?'primary':''}" data-a="rmode" data-m="add">➕ Zum aktuellen Rudel</button></div>`:''}
+      <div class="grid2" style="margin:10px 0"><button class="btn ${ritualMode()==='new'?'primary':''}" data-a="rmode" data-m="new">🗺️ Neues Rudel</button>
+      <button class="btn ${ritualMode()==='add'?'primary':''}" data-a="rmode" data-m="add">➕ Zum aktuellen Rudel</button></div>
+      <p class="muted small">${ritualMode()==='new'?'Neue Lektion: Die bisherigen Wörter bleiben gespeichert und werden weiter wiederholt, gehören aber nicht mehr zum Boss der Woche.':`Die neuen Wörter kommen zu den ${weekWords(cw).length} Wörtern im aktuellen Rudel dazu.`}</p>`:''}
       <label class="lbl">Wie viele Wörter stehen auf deiner Liste?</label>
       <input class="answer small" id="rtarget" type="number" inputmode="numeric" min="1" max="60" value="${P.target||20}">
       <button class="btn primary big" style="margin-top:12px" data-a="rstart">🌕 Mond aufgehen lassen</button>
@@ -615,6 +617,7 @@ function ritual(){
     <button class="btn primary big" style="margin-top:12px" data-a="radd">🐺 Werwolf aufspüren</button>
     <button class="btn" style="width:100%;margin-top:10px" data-a="rfinish" ${R.added?'':'disabled'}>Rudel ist komplett ✓</button>
   </div>
+  ${ww.length>R.list.length?`<p class="muted" style="text-align:center">Schon im Rudel: ${ww.length-R.list.length} Wörter von vorher</p>`:''}
   ${R.list.length?`<div class="card"><h3>Heute aufgespürt</h3><div class="wordlist">${[...R.list].reverse().map(id=>{const w=S.words.find(x=>x.id===id);return w?`<div class="wl">${esc(w.de)} → <b>${esc(w.en)}</b><button class="iconbtn x" data-a="rdel" data-id="${w.id}">🗑️</button></div>`:''}).join('')}</div></div>`:''}`;
 }
 after.ritual=()=>{const d=$('#rde');if(d&&!coarse)d.focus();
@@ -623,7 +626,7 @@ after.ritual=()=>{const d=$('#rde');if(d&&!coarse)d.focus();
 function ritualStart(){
   const target=Math.max(1,Math.min(80,parseInt($('#rtarget').value)||20));
   let wk=curWeek();
-  if(!wk || P.mode!=='add'){
+  if(!wk || ritualMode()==='new'){
     wk={id:uidGen(), n:S.weeks.length, start:today(), region:S.weeks.length%REGIONS.length};
     S.weeks.push(wk);
   }
@@ -955,6 +958,7 @@ function parents(){
   <div class="card"><h3>Wortliste bearbeiten</h3>
     ${S.weeks.length?`<select class="edit" id="wksel">${[...S.weeks].reverse().map(w=>`<option value="${w.id}" ${w.id===wkSel?'selected':''}>${esc(region(w).name)} · ab ${w.start.split('-').reverse().join('.')} (${weekWords(w).length} Wörter)</option>`).join('')}</select>`:''}
     <table style="margin-top:8px">${ww.map(w=>`<tr><td><input class="edit" data-ed="de" data-id="${w.id}" value="${esc(w.de)}"></td><td><input class="edit" data-ed="en" data-id="${w.id}" value="${esc(w.en)}"></td><td><button class="btn ${delArm===w.id?'red':''}" data-a="wdel" data-id="${w.id}">${delArm===w.id?'Sicher?':'🗑️'}</button></td></tr>`).join('')}</table>
+    ${S.weeks.length>=2&&wkSel===curWeek()?.id?`<button class="btn ${delArm==='MERGE'?'red':''}" style="margin-top:10px" data-a="merge">${delArm==='MERGE'?'Sicher? Nochmal tippen':'🔗 Mit dem vorherigen Rudel zusammenlegen'}</button>`:''}
     <p class="muted small">Mehrere richtige Antworten mit / trennen, z. B. „autumn / fall“. Groß- und Kleinschreibung wird nicht gewertet.</p></div>
   <div class="card"><h3>Einstellungen</h3>
     <div class="grid2"><label>Lange Runde (Di, Do, Fr), Minuten<input class="edit" type="number" min="3" max="30" id="setlong" value="${S.settings.long}"></label>
@@ -1051,6 +1055,7 @@ function act(a,ds={}){
     case 'lock': parentOK=false; go('home'); break;
     case 'newpin': S.pin=null; parentOK=false; pinBuf=''; pinStage=null; save(); render(); break;
     case 'wdel': if(delArm===ds.id){S.words=S.words.filter(w=>w.id!==ds.id);delArm=null;save()} else delArm=ds.id; render(); break;
+    case 'merge': if(delArm==='MERGE'&&S.weeks.length>=2){const last=S.weeks.pop(),prev=S.weeks[S.weeks.length-1];S.words.forEach(w=>{if(w.week===last.id)w.week=prev.id});S.bosses.forEach(b=>{if(b.week===last.id)b.week=prev.id});delArm=null;P.week=prev.id;save();toast('Rudel zusammengelegt ✓')} else delArm='MERGE'; render(); break;
     case 'export': doExport(); break;
     case 'copyexp': copyExport(); break;
     case 'imptext': prepImport($('#imptext').value); break;
@@ -1060,7 +1065,7 @@ function act(a,ds={}){
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-a]'); if(!b||b.disabled) return;
-  ac(); if(b.dataset.a!=='wdel'&&b.dataset.a!=='resetall') delArm=null;
+  ac(); if(!['wdel','resetall','merge'].includes(b.dataset.a)) delArm=null;
   act(b.dataset.a,b.dataset);
 });
 if('speechSynthesis' in window){speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices()}
