@@ -289,10 +289,11 @@ function newState(){
   return {v:1, created:today(), words:[], weeks:[], teeth:0, defeated:0, days:{}, bosses:[],
     suit:'classic', suits:['classic'], attackLv:{wasser:1,goldblitz:1,flut:1,strudel:1,tsunami:1}, selAttack:'wasser',
     trophies:[], seenAttacks:['wasser'], pin:null, hero:null, heroFlip:false, muted:false,
-    settings:{long:10, short:5}, bestStreak:0};
+    settings:{long:10, short:5}, bestStreak:0, heroName:null, defaultHero:'generic'};
 }
 function load(){
   try{const r=localStorage.getItem(KEY); if(!r) return null; const s=JSON.parse(r); const d=newState();
+    if(s.heroName===undefined){s.heroName='JonnyX'; s.defaultHero='jonny'}
     for(const k in d) if(s[k]===undefined) s[k]=d[k];
     for(const k in d.attackLv) if(s.attackLv[k]===undefined) s.attackLv[k]=1;
     return s;
@@ -302,6 +303,7 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify(S));storageOK=true}c
 let S = load() || newState();
 
 /* ---------- Abgeleitete Werte ---------- */
+const HN = () => esc(S.heroName||'Held');
 const curWeek = () => S.weeks[S.weeks.length-1] || null;
 const region = wk => REGIONS[(wk?.region ?? 0) % REGIONS.length];
 const weekWords = wk => wk ? S.words.filter(w=>w.week===wk.id) : [];
@@ -448,7 +450,7 @@ function wolfSVG(reg,o={}){
   <path d="M86 75 L90 76.5 M114 75 L110 76.5" stroke="#1a0004" stroke-width="2.2" stroke-linecap="round"/>
 </svg>`;
 }
-const HERO_SVG = `<svg viewBox="0 0 200 260" aria-label="JonnyX">
+const HERO_SVG = `<svg viewBox="0 0 200 260" aria-label="Held">
 <defs><linearGradient id="hxc" x1="0" x2="1"><stop offset="0" stop-color="#132f75"/><stop offset="1" stop-color="#2b5fd9"/></linearGradient>
 <linearGradient id="hxb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4b8dff"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient>
 <linearGradient id="hxg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1a8"/><stop offset="1" stop-color="#d49b12"/></linearGradient></defs>
@@ -476,7 +478,7 @@ const JONNY_IMG='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZ0AAAIwCAYAAABdt
 function suitOf(id){return SUITS.find(s=>s.id===id)||SUITS[0]}
 function heroInner(suitId=S.suit){
   const s=suitOf(suitId);
-  return `<div class="heroimg" style="filter:${s.filter};--aura:${s.aura}"><img src="${S.hero||JONNY_IMG}" alt="JonnyX" style="${S.heroFlip?'transform:scaleX(-1)':''}"></div>`;
+  return `<div class="heroimg" style="filter:${s.filter};--aura:${s.aura}">${(S.hero||S.defaultHero==='jonny')?`<img src="${S.hero||JONNY_IMG}" alt="${HN()}" style="${S.heroFlip?'transform:scaleX(-1)':''}">`:HERO_SVG}</div>`;
 }
 let STARS='';
 for(let i=0;i<40;i++) STARS+=`<i class="star" style="left:${Math.random()*100}%;top:${Math.random()*55}%;animation-delay:${(Math.random()*3).toFixed(1)}s"></i>`;
@@ -533,12 +535,24 @@ function checkUnlocks(){ // neue Attacken & Pokale melden
 let screen='home', P={}, T=null, B=null, R=null, parentOK=false;
 function go(s,p={}){screen=s;P=p;if(T&&s!=='hunt'){clearInterval(T.iv);T=null}render();window.scrollTo(0,0)}
 function render(){
-  const f={home,ritual,hunt:huntScreen,bossIntro,boss:bossScreen,shop,trophies,heroScreen,parents}[screen]||home;
+  if(!S.heroName&&screen!=='setup'){screen='setup'}
+  const f={setup,home,ritual,hunt:huntScreen,bossIntro,boss:bossScreen,shop,trophies,heroScreen,parents}[screen]||home;
   app.innerHTML=f();
   after[screen]?.();
 }
 const after={};
 
+/* ======================= START ======================= */
+function setup(){
+  return `<h1 style="text-align:center">Die Werwolfjagd</h1>
+  ${sceneHTML({})}
+  <div class="card"><h3>Wie heißt dein Held?</h3>
+    <p>Das Dorf braucht einen Helden gegen die Werwölfe. Denk dir einen Namen aus.</p>
+    <input class="answer small" id="setname" maxlength="16" ${inputAttrs} placeholder="z. B. FelipeX">
+    <p class="muted small">Unter „Mein Held“ kannst du später deinen Helden zeichnen und als Foto hochladen.</p>
+    <button class="btn primary big" style="margin-top:10px" data-a="setupgo">⚔️ Los geht's</button></div>`;
+}
+after.setup=()=>{$('#setname').addEventListener('keydown',e=>{if(e.key==='Enter')act('setupgo')})};
 /* ======================= HOME ======================= */
 function home(){
   const cw=curWeek(), reg=region(cw), ww=weekWords(cw), learned=ww.filter(w=>w.box>=2).length;
@@ -556,7 +570,7 @@ function home(){
   else main=`<button class="btn primary big" data-a="hunt">⚔️ ${rec?.done?'Noch eine Jagd':'Jagd starten'} · ${roundMins()} Min${isWeekend()?' · doppelte Zähne':''}</button>`;
   return `
   ${!storageOK?'<div class="banner">⚠️ Speichern klappt in diesem Browser gerade nicht. Fortschritt geht beim Schließen verloren.</div>':''}
-  <div class="top"><h1>JonnyX</h1>
+  <div class="top"><h1>${HN()}</h1>
     <div class="row"><span class="pill">🦷 ${S.teeth}</span><span class="pill">🔥 ${st}</span>
     <button class="iconbtn" data-a="mute">${S.muted?'🔇':'🔊'}</button></div></div>
   ${sceneHTML({wolf: cw?`<div class="wolf ${ww.length?'':'gone'}" id="wolf"><div class="inner">${wolfSVG(reg)}</div></div>`:''})}
@@ -564,7 +578,7 @@ function home(){
     ${cw?`<div class="row" style="justify-content:space-between"><h3>${esc(reg.name)}</h3><span class="muted">Boss: ${esc(reg.boss)}</span></div>
     <p class="muted">${learned} von ${ww.length} Werwölfen endgültig besiegt</p>
     <div class="progress"><div style="width:${ww.length?learned/ww.length*100:0}%"></div></div>`
-    :`<h3>Willkommen, JonnyX!</h3><p>Das Dorf wird bald von Werwölfen angegriffen. Ruf dein erstes Rudel: Trag die Vokabeln ein, die du diese Woche lernen musst.</p>`}
+    :`<h3>Willkommen, ${HN()}!</h3><p>Das Dorf wird bald von Werwölfen angegriffen. Ruf dein erstes Rudel: Trag die Vokabeln ein, die du diese Woche lernen musst.</p>`}
   </div>
   ${rec?.done&&!ritualDue?`<p class="muted" style="text-align:center">✅ Heute hast du schon gejagt. Stark!</p>`:''}
   ${main}
@@ -773,7 +787,7 @@ function endHunt(reason){
   if(T.mode==='extra') rec.extra=true;
   const msgs=checkUnlocks(); save();
   const errs=[...T.errors].map(id=>S.words.find(w=>w.id===id)).filter(Boolean);
-  const title={time:'Zeit um, gut gekämpft!',clear:'Alle Werwölfe besiegt! 🎉',retreat:'JonnyX zieht sich zurück',quit:'Jagd beendet'}[reason];
+  const title={time:'Zeit um, gut gekämpft!',clear:'Alle Werwölfe besiegt! 🎉',retreat:`${HN()} zieht sich zurück`,quit:'Jagd beendet'}[reason];
   if(reason==='clear'||reason==='time') sfx.win();
   const t=T; T=null;
   modal(`<h2>${title}</h2>
@@ -868,7 +882,7 @@ function shop(){
       :`<button class="btn primary" data-a="buy" data-id="${s.id}" ${S.teeth<s.cost?'disabled':''}>Kaufen · ${s.cost} 🦷</button>`}</div>`}).join('');
   return `<div class="top"><h2>🦷 Zahn-Shop</h2><div class="row"><span class="pill">🦷 ${S.teeth}</span><button class="iconbtn" data-a="go" data-s="home">✕</button></div></div>
   <div class="tabs"><button class="btn ${tab==='att'?'on':''}" data-a="tab" data-t="att">⚡ Attacken</button><button class="btn ${tab==='suit'?'on':''}" data-a="tab" data-t="suit">🛡️ Rüstungen</button></div>
-  <p class="muted">${tab==='att'?'Ab Stufe 3 bringt jeder Treffer mit dieser Attacke 2 Zähne statt 1.':'Neue Rüstungen für JonnyX.'}</p>
+  <p class="muted">${tab==='att'?'Ab Stufe 3 bringt jeder Treffer mit dieser Attacke 2 Zähne statt 1.':`Neue Rüstungen für ${HN()}.`}</p>
   <div class="items">${tab==='att'?att:suits}</div>`;
 }
 
@@ -890,15 +904,16 @@ function trophies(){
 function heroScreen(){
   return `<div class="top"><h2>🦸 Mein Held</h2><button class="iconbtn" data-a="go" data-s="home">✕</button></div>
   ${sceneHTML({})}
-  <div class="card"><h3>JonnyX selbst zeichnen</h3>
-    <p>Das ist dein JonnyX, gezeichnet von dir. Wenn du eine neue Version zeichnest, lade sie hier hoch. Der weiße Hintergrund wird automatisch weggeschnitten.</p>
+  <div class="card"><h3>Deinen Helden zeichnen</h3>
+    <label class="lbl">Name deines Helden</label><input class="answer small" id="heroname" maxlength="16" ${inputAttrs} value="${HN()}">
+    <p>${S.hero||S.defaultHero==='jonny'?'Wenn du eine neue Version zeichnest, lade sie hier hoch.':'Zeichne deinen Helden auf weißem Papier, ganz von Kopf bis Fuß, und lade ein Foto davon hier hoch.'} Der weiße Hintergrund wird automatisch weggeschnitten.</p>
     <p class="muted small">Foto von Papier: von oben, gleichmäßig hell, ohne Schatten.</p>
     <label class="btn primary big" style="margin-top:8px">🖼️ Zeichnung hochladen<input type="file" accept="image/*" id="herofile" style="display:none"></label>
     <div id="heroprev"></div>
-    <div class="grid2" style="margin-top:12px"><button class="btn" data-a="heroflip">↔️ Spiegeln</button>${S.hero?'<button class="btn" data-a="heroreset">Zurück zur ersten Zeichnung</button>':''}</div>
+    <div class="grid2" style="margin-top:12px"><button class="btn" data-a="heroflip">↔️ Spiegeln</button>${S.hero?`<button class="btn" data-a="heroreset">${S.defaultHero==='jonny'?'Zurück zur ersten Zeichnung':'Zeichnung entfernen'}</button>`:''}</div>
   </div>`;
 }
-after.heroScreen=()=>{$('#herofile').addEventListener('change',async e=>{
+after.heroScreen=()=>{$('#heroname').addEventListener('change',e=>{const v=e.target.value.trim();if(v){S.heroName=v;save();toast('Name gespeichert ✓',1200)}});$('#herofile').addEventListener('change',async e=>{
   const f=e.target.files[0]; if(!f) return; $('#heroprev').innerHTML='<p class="muted">Schneide aus…</p>';
   try{const url=await processDrawing(f); P.pending=url;
     $('#heroprev').innerHTML=`<div class="checker"><img src="${url}" alt="Vorschau"></div><div class="grid2"><button class="btn primary" data-a="herook">✅ Übernehmen</button><button class="btn" data-a="go" data-s="heroScreen">Nochmal</button></div>`;
@@ -1019,6 +1034,7 @@ function act(a,ds={}){
   switch(a){
     case 'go': if(ds.s==='ritual'){R=null;P={}} go(ds.s); break;
     case 'closego': closeModal(); R=null; go('home'); break;
+    case 'setupgo': {const v=$('#setname').value.trim(); if(!v){toast('Gib deinem Helden einen Namen ✍️');break} S.heroName=v; S.created=today(); save(); go('home')} break;
     case 'mute': S.muted=!S.muted; save(); render(); break;
     case 'hunt': startHunt('normal'); break;
     case 'extra': startHunt('extra'); break;
@@ -1047,7 +1063,7 @@ function act(a,ds={}){
     case 'buy': {const s=suitOf(ds.id); if(S.teeth>=s.cost&&!S.suits.includes(s.id)){S.teeth-=s.cost;S.suits.push(s.id);S.suit=s.id;save();sfx.coin();toast(`${s.name} gekauft!`);render()}} break;
     case 'wear': S.suit=ds.id; save(); render(); break;
     // Held
-    case 'herook': if(P.pending){S.hero=P.pending; S.heroFlip=false; P.pending=null; save(); toast('JonnyX ist jetzt dein Held! 🦸'); render()} break;
+    case 'herook': if(P.pending){S.hero=P.pending; S.heroFlip=false; P.pending=null; save(); toast(`${HN()} ist jetzt dein Held! 🦸`); render()} break;
     case 'heroflip': S.heroFlip=!S.heroFlip; save(); render(); break;
     case 'heroreset': S.hero=null; save(); render(); break;
     // Eltern
@@ -1059,8 +1075,8 @@ function act(a,ds={}){
     case 'export': doExport(); break;
     case 'copyexp': copyExport(); break;
     case 'imptext': prepImport($('#imptext').value); break;
-    case 'impgo': if(pendingImport){const d=newState(); for(const k in d) if(pendingImport[k]===undefined) pendingImport[k]=d[k]; S=pendingImport; pendingImport=null; save(); toast('Sicherung geladen ✓'); render()} break;
-    case 'resetall': if(delArm==='ALL'){const pin=S.pin; S=newState(); S.pin=pin; delArm=null; save(); toast('Alles zurückgesetzt')} else delArm='ALL'; render(); break;
+    case 'impgo': if(pendingImport){if(pendingImport.heroName===undefined){pendingImport.heroName='JonnyX';pendingImport.defaultHero='jonny'} const d=newState(); for(const k in d) if(pendingImport[k]===undefined) pendingImport[k]=d[k]; S=pendingImport; pendingImport=null; save(); toast('Sicherung geladen ✓'); render()} break;
+    case 'resetall': if(delArm==='ALL'){const keep={pin:S.pin,heroName:S.heroName,defaultHero:S.defaultHero,hero:S.hero,heroFlip:S.heroFlip}; S=newState(); Object.assign(S,keep); delArm=null; save(); toast('Alles zurückgesetzt')} else delArm='ALL'; render(); break;
   }
 }
 document.addEventListener('click',e=>{
