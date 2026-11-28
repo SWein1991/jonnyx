@@ -214,6 +214,18 @@ th{color:var(--muted);font-weight:800}
 textarea.edit{height:120px;font-family:monospace;font-size:13px}
 .checker{background:repeating-conic-gradient(#ddd 0 25%,#fff 0 50%) 0 0/20px 20px;border-radius:16px;height:240px;display:flex;justify-content:center;align-items:center;margin:10px 0}
 .checker img{max-height:220px;max-width:90%}
+.xrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.xrow:last-child{border-bottom:0}
+.xname{display:flex;align-items:center;gap:12px;flex:1;min-width:200px}
+.xname>span{font-size:32px}
+.xname>div{flex:1}
+.progress.thin{height:10px;margin:4px 0}
+.xrule{text-align:left;font-size:19px;line-height:1.5}
+.xrule b{color:var(--gold2)}
+.de.xq{font-size:clamp(24px,4.6vw,36px);line-height:1.35}
+.gp{color:var(--gold2);white-space:nowrap}
+.gp.bad{background:var(--red);color:#fff;border-radius:6px;padding:0 6px}
+.sol.xsol{font-size:clamp(22px,4vw,32px);display:block}
 </style>
 </head>
 <body>
@@ -289,7 +301,7 @@ function newState(){
   return {v:1, created:today(), words:[], weeks:[], teeth:0, defeated:0, days:{}, bosses:[],
     suit:'classic', suits:['classic'], attackLv:{wasser:1,goldblitz:1,flut:1,strudel:1,tsunami:1}, selAttack:'wasser',
     trophies:[], seenAttacks:['wasser'], pin:null, hero:null, heroFlip:false, muted:false,
-    settings:{long:10, short:5}, bestStreak:0, heroName:null, defaultHero:'generic'};
+    settings:{long:10, short:5}, bestStreak:0, heroName:null, defaultHero:'generic', exam:null};
 }
 function load(){
   try{const r=localStorage.getItem(KEY); if(!r) return null; const s=JSON.parse(r); const d=newState();
@@ -533,10 +545,11 @@ function checkUnlocks(){ // neue Attacken & Pokale melden
 
 /* ---------- Router ---------- */
 let screen='home', P={}, T=null, B=null, R=null, parentOK=false;
-function go(s,p={}){screen=s;P=p;if(T&&s!=='hunt'){clearInterval(T.iv);T=null}render();window.scrollTo(0,0)}
+function go(s,p={}){screen=s;P=p;if(T&&s!=='hunt'){clearInterval(T.iv);T=null}if(X&&s!=='examrun'){clearInterval(X.iv);X=null}render();window.scrollTo(0,0)}
 function render(){
   if(!S.heroName&&screen!=='setup'){screen='setup'}
-  const f={setup,home,ritual,hunt:huntScreen,bossIntro,boss:bossScreen,shop,trophies,heroScreen,parents}[screen]||home;
+  const f={setup,home,ritual,hunt:huntScreen,bossIntro,boss:bossScreen,shop,trophies,heroScreen,parents,exam:examScreen,examrun:examRun}[screen]||home;
+  if(screen==='examrun'&&!X){screen='exam'; return render()}
   app.innerHTML=f();
   after[screen]?.();
 }
@@ -582,6 +595,7 @@ function home(){
   </div>
   ${rec?.done&&!ritualDue?`<p class="muted" style="text-align:center">✅ Heute hast du schon gejagt. Stark!</p>`:''}
   ${main}
+  ${examActive()?`<button class="btn blue big" style="margin-top:12px" data-a="go" data-s="exam">📝 Klassenarbeit · ${examDaysTxt()}</button>`:''}
   ${extra?`<button class="btn red big" style="margin-top:12px" data-a="extra">🐺 Extra-Mission: Alpha-Werwölfe · 5 Min</button>`:''}
   ${cw&&!ritualDue?`<div class="grid2" style="margin-top:12px">
      <button class="btn blue" data-a="boss" ${ww.length<4?'disabled':''}>👹 Boss-Kampf (Test-Training)</button>
@@ -968,6 +982,7 @@ function parents(){
   <div class="card"><h3>Boss-Kämpfe (Test-Simulation)</h3>
     ${S.bosses.length?`<table><tr><th>Datum</th><th>Punkte</th><th>Note</th><th>Zeit</th></tr>${[...S.bosses].reverse().slice(0,12).map(b=>`<tr><td>${b.date.split('-').reverse().join('.')}</td><td>${fmtPts(b.pts)} / ${b.max}</td><td>${b.grade}</td><td>${Math.floor(b.secs/60)}:${String(b.secs%60).padStart(2,'0')}</td></tr>`).join('')}</table>
     <p class="muted small">Notenschlüssel: ab 92 % Note 1, 81 % Note 2, 67 % Note 3, 50 % Note 4, 30 % Note 5. Die Schule kann anders werten. Bei Note 3 oder schlechter bietet die App am selben oder nächsten Tag eine 5-Minuten-Extra-Mission an.</p>`:'<p class="muted">Noch kein Boss-Kampf.</p>'}</div>
+  ${examParents()}
   <div class="card"><h3>Problemwörter (Alpha-Werwölfe)</h3>
     ${alpha.length?`<table><tr><th>Deutsch</th><th>Englisch</th><th>Fehler</th></tr>${alpha.slice(0,30).map(w=>`<tr><td>${esc(w.de)}</td><td>${esc(w.en)}</td><td>${w.wrong||0}</td></tr>`).join('')}</table>`:'<p class="muted">Gerade keine.</p>'}</div>
   <div class="card"><h3>Wortliste bearbeiten</h3>
@@ -1029,6 +1044,370 @@ function prepImport(txt){
   }catch(e){toast('Das ist keine gültige Sicherung.')}
 }
 
+/* ======================= KLASSENARBEIT ======================= */
+/* Aufgaben fest eingebaut, Wortschatz aus Access 1 (Welcome, Unit 1 Part A und B).
+   Aufgabe = [Satz mit ___, Lösung (mehrere mit / trennen), Hinweis] */
+const EXAM = {
+  id:'en-2026-12-03-v2', title:'Englischarbeit', date:'2026-12-03',
+  reg:{name:'Die Tintenhöhle', boss:'Tintenklaue', wolf:'Tinten-Werwolf', fur:'#27324a', eye:'#5ad7ff'},
+  plan:{
+    '2026-11-28':{txt:'Späher-Runde: von jedem Thema drei Aufgaben. So siehst du, wo die Werwölfe am stärksten sind.', mode:'mix'},
+    '2026-11-29':{txt:'to be, have got und a / an', topics:['be','havegot','aan']},
+    '2026-11-30':{txt:'Kurze Runde vor dem Fußball: my, your, his … und die Familie', topics:['poss','fam']},
+    '2026-12-01':{txt:'there is / there are, Adjektive, Präpositionen. Danach die Probearbeit gegen Tintenklaue.', topics:['there','adj','prep'], mock:true},
+    '2026-12-02':{txt:'Nur noch deine Fehler von gestern. Nichts Neues mehr.', mode:'err'},
+    '2026-12-03':{txt:'Heute ist die Arbeit. Du bist vorbereitet. Fang mit den Aufgaben an, die du sicher kannst.', mode:'none'},
+  },
+  topics:[
+    {id:'be', icon:'🟦', name:'to be und Pronomen',
+     tip:'I am · he, she, it is · you, we, they are',
+     rule:`<p><b>I am</b> · <b>he / she / it is</b> · <b>you / we / they are</b></p>
+       <p>Kurzformen: I'm, you're, he's, she's, it's, we're, they're</p>
+       <p>Verneinung: I'm not, he <b>isn't</b>, they <b>aren't</b></p>
+       <p>Frage: Verb nach vorne. <b>Are</b> you …? <b>Is</b> she …?</p>
+       <p>Kurzantwort: Yes, I am. / No, he isn't. / Yes, they are.</p>
+       <p>Pronomen: ein Junge → <b>he</b> · ein Mädchen → <b>she</b> · eine Sache → <b>it</b> · mehrere → <b>they</b></p>`,
+     items:[
+      ['I ___ eleven years old.','am'],['She ___ my sister.','is'],['We ___ in class 5b.','are'],
+      ['They ___ from Brighton.','are'],['He ___ my friend.','is'],['You ___ late!','are'],
+      ['It ___ a nice room.','is'],['My parents ___ at school.','are'],['Lily and I ___ friends.','are'],
+      ['The dog ___ in the garden.','is'],['I ___ not late.','am'],
+      ['He ___ my brother. He is my cousin.',"isn't / is not",'verneint'],
+      ["The dogs ___ black. They're brown.","aren't / are not",'verneint'],
+      ['___ you in my class?','are','Frage'],['___ she your class teacher?','is','Frage'],['___ they your friends?','are','Frage'],
+      ['Are you from Germany? – Yes, I ___.','am','Kurzantwort'],
+      ['Is he your brother? – No, he ___.',"isn't / is not",'Kurzantwort'],
+      ['Are they at school? – Yes, they ___.','are','Kurzantwort'],
+      ['I am = ___',"i'm",'Kurzform'],['she is = ___',"she's",'Kurzform'],['they are = ___',"they're",'Kurzform'],
+      ['we are not = ___',"we aren't / we're not",'Kurzform'],
+      ['This is my brother. ___ is ten.','he','Pronomen'],['My parents are nice. ___ are from Brighton.','they','Pronomen'],
+      ['The room is big. ___ is very tidy.','it','Pronomen'],['This is my aunt. ___ is really nice.','she','Pronomen'],
+      ['My sister and I are in class 5. ___ are friends too.','we','Pronomen'],
+     ]},
+    {id:'havegot', icon:'🎒', name:'have got / has got',
+     tip:'he, she, it → has got · I, you, we, they → have got',
+     rule:`<p><b>I / you / we / they have got</b> · <b>he / she / it has got</b></p>
+       <p>Ein Name oder eine Sache zählt wie he / she / it: My brother <b>has got</b> a big room.</p>
+       <p>Kurzformen: I've got, you've got, he's got, she's got, we've got, they've got</p>
+       <p>Verneinung: I <b>haven't got</b> a dog. He <b>hasn't got</b> a sister.</p>
+       <p>Frage: <b>Have</b> you got …? <b>Has</b> she got …?</p>
+       <p>Kurzantwort ohne „got“: Yes, I have. / No, she hasn't.</p>
+       <p>Im Buch steht auch nur „have / has“ (I have a small room). Die App lässt in Aussagesätzen beides gelten.</p>`,
+     items:[
+      ['I ___ a small room.','have got / have','have got'],['My brother ___ a big room.','has got / has','have got'],
+      ['We ___ a nice garden.','have got / have','have got'],['He ___ a TV in his room.','has got / has','have got'],
+      ['They ___ three cats.','have got / have','have got'],['The living room ___ two windows.','has got / has','have got'],
+      ['You ___ a new bike.','have got / have','have got'],['Lily and Zane ___ a dog.','have got / have','have got'],
+      ['My grandma ___ a small flat.','has got / has','have got'],['She ___ two brothers.','has got / has','have got'],
+      ['My aunt and uncle ___ a nice house.','have got / have','have got'],['The garden ___ an old tree.','has got / has','have got'],
+      ["He ___ a sister. He's got a brother.","hasn't got / has not got",'verneint'],
+      ['I ___ a pet.',"haven't got / have not got",'verneint'],
+      ["We ___ a garden. We've got a flat.","haven't got / have not got",'verneint'],
+      ['My cousin ___ a guitar.',"hasn't got / has not got",'verneint'],
+      ['___ you got a brother?','have','Frage'],['___ she got a phone?','has','Frage'],
+      ['___ they got a garden?','have','Frage'],['___ your uncle got a dog?','has','Frage'],
+      ['Have you got a pet? – Yes, I ___.','have','Kurzantwort'],
+      ['Has he got a sister? – No, he ___.',"hasn't / has not",'Kurzantwort'],
+      ['Have they got a TV? – No, they ___.',"haven't / have not",'Kurzantwort'],
+      ['Has Lily got a cat? – Yes, she ___.','has','Kurzantwort'],
+      ['I have got = ___',"i've got",'Kurzform'],['she has got = ___',"she's got",'Kurzform'],['we have got = ___',"we've got",'Kurzform'],
+     ]},
+    {id:'aan', icon:'☂️', name:'a oder an',
+     tip:'an vor a, e, i, o, u (dem Laut nach) · sonst a',
+     rule:`<p><b>an</b> vor a, e, i, o, u: an umbrella, an aunt, an uncle, an armchair, an animal</p>
+       <p><b>a</b> vor allen anderen Lauten: a book, a dog, a sofa</p>
+       <p>Es zählt das Wort direkt danach: <b>an</b> old tree, aber <b>a</b> new tree.</p>
+       <p>Es zählt der Laut, nicht der Buchstabe: <b>a</b> uniform (klingt wie „ju“), <b>an</b> hour (das h hört man nicht).</p>`,
+     items:[
+      ["It's ___ umbrella.",'an'],["It's ___ book.",'a'],["It's ___ armchair.",'an'],["It's ___ lamp.",'a'],
+      ['She is ___ aunt.','an'],['He is ___ uncle.','an'],['I have ___ brother.','a'],["It's ___ animal.",'an'],
+      ["It's ___ old tree.",'an'],["It's ___ new sofa.",'a'],["It's ___ answer.",'an'],["It's ___ question.",'a'],
+      ["It's ___ English word.",'an'],["It's ___ dog.",'a'],["It's ___ orange ball.",'an'],["It's ___ awesome room.",'an'],
+      ["It's ___ big flat.",'a'],["It's ___ easy question.",'an'],["It's ___ important rule.",'an'],["It's ___ cupboard.",'a'],
+      ["It's ___ uniform.",'a'],['I need ___ hour.','an'],["It's ___ nice garden.",'a'],["It's ___ guitar.",'a'],
+     ]},
+    {id:'poss', icon:'🧢', name:'my, your, his, her …',
+     tip:'I→my · you→your · he→his · she→her · it→its · we→our · they→their',
+     rule:`<p>I → <b>my</b> · you → <b>your</b> · he → <b>his</b> · she → <b>her</b></p>
+       <p>it → <b>its</b> · we → <b>our</b> · they → <b>their</b></p>
+       <p>Es zählt, <b>wem</b> etwas gehört: Lily → <b>her</b> brother. Zane → <b>his</b> sister.</p>
+       <p>Achtung: <b>its</b> (sein/ihr) hat keinen Apostroph. it's = it is.</p>`,
+     items:[
+      ["That's a nice dog. What is ___ name?",'its'],['This is Zane. ___ sister is Emma.','his'],
+      ['This is Lily. ___ brother is Ben.','her'],["I'm Sam. ___ hobby is football.",'my'],
+      ["You are new here. What's ___ name?",'your'],['We are in class 5b. ___ class teacher is Mr Lee.','our'],
+      ['Tom and Emma have a cat. ___ cat is black.','their'],['My grandma and grandpa live in Brighton. ___ house is old.','their'],
+      ['My mother is a teacher. ___ school is big.','her'],['My father has a bike. ___ bike is red.','his'],
+      ['We have a garden. ___ garden is small.','our'],['The cat is in ___ box.','its','it'],
+      ['I like ___ family.','my','I'],['Is this ___ pencil, Ben?','your','you'],
+      ['Emma and I are sisters. ___ parents are nice.','our'],['The boys are in ___ room.','their','they'],
+      ['My uncle and ___ dog live in Brighton.','his','he'],['My aunt and ___ cats live in a flat.','her','she'],
+      ['Kids, where are ___ books?','your','you'],['Emma has a rabbit. ___ rabbit is white.','her'],
+     ]},
+    {id:'there', icon:'📍', name:'there is / there are',
+     tip:'eins → there is · mehrere → there are',
+     rule:`<p><b>There is</b> (there's) + <b>eine</b> Sache: There is a photo on your desk.</p>
+       <p><b>There are</b> + <b>mehrere</b> Sachen: There are photos on the table.</p>
+       <p>Verneinung: There <b>isn't</b> a … / There <b>aren't any</b> …</p>
+       <p>Frage: <b>Is there</b> a …? <b>Are there any</b> …?</p>
+       <p>Kurzantwort: Yes, there is. / No, there aren't.</p>
+       <p>Achtung: „Es gibt“ heißt nie „It gives“.</p>`,
+     items:[
+      ['___ a photo on the desk.',"there is / there's"],['___ two cats in the garden.','there are'],
+      ['___ a sofa in our living room.',"there is / there's"],['___ three rooms upstairs.','there are'],
+      ['___ an armchair next to the window.',"there is / there's"],['___ a lot of books on the shelf.','there are'],
+      ['___ a big tree in the garden.',"there is / there's"],['___ two lamps in my room.','there are'],
+      ['___ a TV in my room.',"there isn't / there is not",'verneint'],
+      ['___ any chairs in the kitchen.',"there aren't / there are not",'verneint'],
+      ['___ a garden? – Yes, there is.','is there','Frage'],['___ any posters on the wall? – Yes, there are.','are there','Frage'],
+      ['Is there a TV in your room? – No, there ___.',"isn't / is not",'Kurzantwort'],
+      ['Are there any pets in your house? – Yes, there ___.','are','Kurzantwort'],
+      ['___ a bag under the chair.',"there is / there's"],['___ four people in my family.','there are'],
+      ['___ some sandwiches on the table.','there are'],['___ a clock on the wall.',"there is / there's"],
+      ['Is there a sofa in the living room? – Yes, there ___.','is','Kurzantwort'],
+      ['Are there any snakes in your room? – No, there ___.',"aren't / are not",'Kurzantwort'],
+     ]},
+    {id:'fam', icon:'👪', name:'Familie', spell:true,
+     tip:'Genau auf die Schreibweise achten.',
+     rule:`<p>mother · father · <b>parents</b> = Eltern</p>
+       <p>grandma, grandmother = Oma · grandpa, grandfather = Opa</p>
+       <p>brother = Bruder · sister = Schwester</p>
+       <p>aunt = Tante · uncle = Onkel · cousin = Cousin und Cousine</p>
+       <p>divorced = geschieden · family, Mehrzahl: famil<b>ies</b></p>`,
+     items:[
+      ["My mother's mother is my ___.",'grandma / grandmother / granny'],
+      ["My father's father is my ___.",'grandpa / grandfather / granddad / grandad'],
+      ['My mother and my father are my ___.','parents'],
+      ["My mother's sister is my ___.",'aunt'],["My father's brother is my ___.",'uncle'],
+      ['My aunt and uncle have a girl. She is my ___.','cousin'],
+      ['Ben is a boy. His sister says: He is my ___.','brother'],
+      ['Lily is a girl. Her brother says: She is my ___.','sister'],
+      ["My parents aren't together. They are ___.",'divorced'],
+      ['Mutter = ___','mother / mum / mom','auf Englisch'],['Vater = ___','father / dad','auf Englisch'],
+      ['Oma = ___','grandma / grandmother / granny','auf Englisch'],['Opa = ___','grandpa / grandfather / granddad / grandad','auf Englisch'],
+      ['Tante = ___','aunt','auf Englisch'],['Onkel = ___','uncle','auf Englisch'],
+      ['Cousine = ___','cousin','auf Englisch'],['Eltern = ___','parents','auf Englisch'],
+      ['Bruder = ___','brother','auf Englisch'],['Schwester = ___','sister','auf Englisch'],
+      ['Familie = ___','family','auf Englisch'],['geschieden = ___','divorced','auf Englisch'],
+     ]},
+    {id:'adj', icon:'🎨', name:'Adjektive', spell:true,
+     tip:'Das Adjektiv steht vor dem Nomen: a nice street.',
+     rule:`<p>Adjektive beschreiben Dinge oder Personen: The sofa is <b>new</b>. I live in a <b>nice</b> street.</p>
+       <p>Vor einem Nomen steht das Adjektiv <b>zwischen a/an und dem Nomen</b>: a big flat, an old tree.</p>
+       <p>Mit „very“: Our living room is <b>very tidy</b>.</p>
+       <p>Gegenteile: new – old · young – old · big – small · right – wrong</p>`,
+     items:[
+      ["The sofa isn't old. It's ___.",'new','Gegenteil'],["My grandpa isn't young. He's ___.",'old','Gegenteil'],
+      ["My cousin isn't old. She's ___.",'young','Gegenteil'],["The flat isn't big. It's ___.",'small','Gegenteil'],
+      ["No, that's wrong. – Yes, that's ___.",'right','Gegenteil'],["The answer isn't right. It's ___.",'wrong','Gegenteil'],
+      ['nett, schön = ___','nice','auf Englisch'],['niedlich = ___','cute','auf Englisch'],
+      ['gruselig = ___','scary','auf Englisch'],['langweilig = ___','boring','auf Englisch'],
+      ['seltsam = ___','weird','auf Englisch'],['klasse, großartig = ___','awesome','auf Englisch'],
+      ['ordentlich, aufgeräumt = ___','tidy','auf Englisch'],['einfach, leicht = ___','easy','auf Englisch'],
+      ['wichtig = ___','important','auf Englisch'],['spät = ___','late','auf Englisch'],
+      ['groß = ___','big','auf Englisch'],['klein = ___','small','auf Englisch'],
+      ['We ___.','have a big house','Ordne: big · a · house · have'],
+      ['Our ___.','kitchen is very tidy','Ordne: tidy · is · kitchen · very'],
+      ['The ___.','lamp is new','Ordne: new · is · lamp'],
+      ['There ___.','is an old tree','Ordne: an · is · tree · old'],
+      ['The ___.','flat has a new sofa','Ordne: sofa · has · new · flat · a'],
+      ['I ___.','live in a small flat','Ordne: flat · small · in · live · a'],
+      ['ruhig, leise = ___','quiet','auf Englisch'],
+     ]},
+    {id:'prep', icon:'📦', name:'Präpositionen',
+     tip:'in = in · on = auf, an · under = unter · next to = neben · behind = hinter · in front of = vor',
+     rule:`<p><b>in</b> = in · <b>on</b> = auf, an (on the table, on the wall) · <b>under</b> = unter</p>
+       <p><b>next to</b> = neben · <b>behind</b> = hinter · <b>in front of</b> = vor</p>
+       <p>Achtung: <b>in</b> the photo, <b>in</b> the picture (Deutsch: auf dem Foto)</p>
+       <p>Feste Wendungen: <b>at</b> school · I'm <b>from</b> Brighton</p>`,
+     items:[
+      ['The book is ___ the table.','on','auf'],['The cat is ___ the sofa.','under','unter'],
+      ['The photos are ___ the box.','in','in'],['The armchair is ___ the sofa.','next to','neben'],
+      ['The tree is ___ the house.','behind','hinter'],['The bin is ___ the door.','in front of','vor'],
+      ['The poster is ___ the wall.','on','an'],["I'm ___ school.",'at','in der Schule'],
+      ["I'm ___ Germany.",'from','aus'],['My bag is ___ the chair.','on','auf'],
+      ['The ball is ___ the cupboard.','in','in'],['The dog is ___ the table.','under','unter'],
+      ['The lamp is ___ the window.','next to','neben'],['The bike is ___ the house.','in front of','vor'],
+      ['The garden is ___ the house.','behind','hinter'],['There are two cats ___ the photo.','in','auf'],
+      ['Come and sit ___ me.','next to','neben'],['The clock is ___ the wall.','on','an'],
+      ['The cat is in front of the dog. The dog is ___ the cat.','behind','Gegenteil'],
+      ['The dog is behind the cat. The cat is ___ the dog.','in front of','Gegenteil'],
+      ['The sandwich is ___ the shelf.','on','auf'],
+     ]},
+  ],
+};
+let X=null; // laufendes Klassenarbeits-Training oder Probearbeit
+const examActive = () => today()<=EXAM.date;
+const examDays = () => daysBetween(today(),EXAM.date);
+const examDaysTxt = () => {const n=examDays(); return n<=0?'heute!':n===1?'morgen':`noch ${n} Tage`};
+function exS(){ // Speicherbereich für diese Arbeit, getrennt von den Vokabeln
+  if(!S.exam||S.exam.id!==EXAM.id) S.exam={id:EXAM.id,prog:{},mocks:[],off:[]};
+  return S.exam;
+}
+const exP = id => exS().prog[id] || (exS().prog[id]={b:0,w:0});
+const exTopics = () => EXAM.topics.filter(t=>!exS().off.includes(t.id));
+const exItems = t => t.items.map((it,i)=>({id:t.id+':'+i,t,q:it[0],a:it[1],h:it[2]||''}));
+const exAll = () => exTopics().flatMap(exItems);
+const exDone = t => exItems(t).filter(i=>(exS().prog[i.id]?.b||0)>=2).length;
+const exErrs = () => exAll().filter(i=>{const p=exS().prog[i.id];return p&&p.w>0&&p.b<2});
+function exCheck(ans,it){ // Grammatik streng; score .5 = nur ein Buchstabe daneben
+  const a=norm(ans); if(variants(it.a).includes(a)) return 1;
+  return check(ans,it.a).score===.5 ? .5 : 0;
+}
+const exFirst = it => variants(it.a)[0];
+function exSentence(it,cls){ // Satz mit eingesetzter Lösung
+  const sol=`<b class="${cls||'gp'}">${esc(exFirst(it).replace(/^i(?=$|['\s])/,'I'))}</b>`;
+  let s=esc(it.q).replace('___',sol);
+  if(it.q.startsWith('___')) s=s.replace(/>(\w)/,(m,c)=>'>'+c.toUpperCase());
+  return s;
+}
+const exPick = (items,n) => items.map(i=>({i,s:exP(i.id).b*3-Math.min(3,exP(i.id).w)+Math.random()*2})).sort((a,b)=>a.s-b.s).slice(0,n).map(x=>x.i);
+
+function examScreen(){
+  exS(); const ts=exTopics(), all=exAll(), done=all.filter(i=>(S.exam.prog[i.id]?.b||0)>=2).length;
+  const plan=EXAM.plan[today()]||{txt:'Freies Training: Such dir ein Thema aus.',mode:'free'};
+  const errs=exErrs().length, last=S.exam.mocks[S.exam.mocks.length-1];
+  let todayBtn='';
+  if(plan.mode==='mix') todayBtn=`<button class="btn primary big" data-a="xstart" data-m="mix">🔭 Späher-Runde starten</button>`;
+  else if(plan.mode==='err') todayBtn=`<button class="btn primary big" data-a="xstart" data-m="err">🩹 Fehler-Jagd${errs?` · ${errs} offen`:''}</button>`;
+  else if(plan.topics) todayBtn=`<button class="btn primary big" data-a="xstart" data-m="plan">⚔️ Heutige Jagd starten</button>`;
+  return `<div class="top"><h2>📝 ${esc(EXAM.title)}</h2><div class="row"><span class="pill">⏳ ${examDaysTxt()}</span><button class="iconbtn" data-a="go" data-s="home">✕</button></div></div>
+  ${sceneHTML({wolf:`<div class="wolf boss" id="wolf"><div class="inner">${wolfSVG(EXAM.reg,{boss:true})}</div></div>`})}
+  <div class="card"><div class="row" style="justify-content:space-between"><h3>${esc(EXAM.reg.name)}</h3><span class="muted">Boss: ${esc(EXAM.reg.boss)}</span></div>
+    <p class="muted">${done} von ${all.length} Aufgaben sicher</p>
+    <div class="progress"><div style="width:${all.length?done/all.length*100:0}%"></div></div></div>
+  <div class="card"><h3>Heute, ${WD[new Date().getDay()]}</h3><p>${esc(plan.txt)}</p>${todayBtn}
+    ${plan.mock?`<button class="btn blue big" style="margin-top:12px" data-a="xmock">👹 Probearbeit gegen ${esc(EXAM.reg.boss)}</button>`:''}</div>
+  <div class="card"><h3>Themen</h3>
+    ${ts.map(t=>{const n=t.items.length,d=exDone(t);return `<div class="xrow"><div class="xname"><span>${t.icon}</span><div><b>${esc(t.name)}</b><div class="progress thin"><div style="width:${d/n*100}%"></div></div><span class="muted small">${d} / ${n} sicher</span></div></div>
+      <div class="row"><button class="btn" data-a="xrule" data-id="${t.id}">📖</button><button class="btn blue" data-a="xstart" data-m="topic" data-id="${t.id}">Üben</button></div></div>`}).join('')}</div>
+  <div class="grid2"><button class="btn" data-a="xstart" data-m="err" ${errs?'':'disabled'}>🩹 Fehler-Jagd · ${errs}</button>
+    <button class="btn blue" data-a="xmock">👹 Probearbeit</button></div>
+  ${last?`<p class="muted" style="text-align:center">Letzte Probearbeit: Note ${last.grade} (${fmtPts(last.pts)} von ${last.max} Punkten)</p>`:''}`;
+}
+function examRule(id){
+  const t=EXAM.topics.find(x=>x.id===id); if(!t) return;
+  modal(`<h2>${t.icon} ${esc(t.name)}</h2><div class="xrule">${t.rule}</div><button class="btn primary big" style="margin-top:12px" data-a="xclose">Verstanden</button>`);
+}
+function examStart(mode,id){
+  exS(); let items=[], label='';
+  if(mode==='topic'){const t=EXAM.topics.find(x=>x.id===id); if(!t) return; items=exPick(exItems(t),10); label=t.name}
+  else if(mode==='mix'){items=shuffle(exTopics().flatMap(t=>shuffle(exItems(t)).slice(0,3))); label='Späher-Runde'}
+  else if(mode==='plan'){const ids=(EXAM.plan[today()]?.topics||[]).filter(i=>!S.exam.off.includes(i));
+    const ts=EXAM.topics.filter(t=>ids.includes(t.id)); const per=Math.max(4,Math.round(18/Math.max(1,ts.length)));
+    items=ts.flatMap(t=>exPick(exItems(t),per)); label='Heutige Jagd'}
+  else if(mode==='err'){items=shuffle(exErrs()).slice(0,16); label='Fehler-Jagd'}
+  if(!items.length){toast(mode==='err'?'Gerade sind keine Fehler offen. 🎉':'Dafür gibt es gerade keine Aufgaben.');return}
+  X={kind:'train',mode,label,q:items,pos:0,miss:{},right:0,wrong:0,teeth:0,errs:[],start:Date.now(),phase:'ask'};
+  go('examrun');
+}
+function examRun(){
+  const mock=X.kind==='mock';
+  return `<div class="hud"><button class="iconbtn" data-a="xquit">✕</button><span class="pill" id="xcount"></span>
+    ${mock?'<span class="timer" id="xtime">0:00</span>':`<span class="pill">🦷 <span id="xteeth">0</span></span>`}</div>
+  ${sceneHTML({tall:mock,wolf:`<div class="wolf ${mock?'boss':''}" id="wolf"><div class="inner">${wolfSVG(EXAM.reg,{boss:mock})}</div></div>`,
+    extra:mock?`<div class="hpbar"><div id="hp" style="width:100%"></div></div><div class="hpname">${esc(EXAM.reg.boss)}</div>`:''})}
+  <div class="card battlecard" id="bcard"></div>`;
+}
+after.examrun=()=>{
+  if(X.kind==='mock'){X.iv=setInterval(()=>{const s=Math.floor((Date.now()-X.start)/1000);const e=$('#xtime');if(e)e.textContent=`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;else clearInterval(X.iv)},1000)}
+  examAsk();
+};
+function examAsk(){
+  const it=X.q[X.pos]; X.phase='ask';
+  $('#xcount').textContent=`${X.kind==='mock'?'Aufgabe':X.label+' ·'} ${X.pos+1} / ${X.q.length}`;
+  const tt=$('#xteeth'); if(tt) tt.textContent=X.teeth;
+  if(X.kind==='train'){const w=$('#wolf'); if(w){w.className='wolf'; setWolfClass('enter',900)}}
+  const q=esc(it.q).replace('___','<span class="gp">＿＿＿</span>');
+  $('#bcard').innerHTML=`${attackBar()}<div class="de xq"><small>${it.t.icon} ${esc(it.t.name)}${it.h?` · ${esc(it.h)}`:''}</small>${q}</div>
+    <input class="answer small" id="ans" lang="en" ${inputAttrs} placeholder="Was fehlt in der Lücke?">
+    <button class="btn primary big" style="margin-top:12px" data-a="xsubmit">⚡ Angriff!</button>`;
+  const a=$('#ans'); a.addEventListener('keydown',e=>{if(e.key==='Enter')act('xsubmit')}); if(!coarse)a.focus();
+}
+function examSubmit(){
+  if(!X||X.phase!=='ask') return; const it=X.q[X.pos], val=$('#ans').value;
+  if(!val.trim()){toast('Schreib erst eine Antwort ✍️');return}
+  X.phase='busy'; const sc=exCheck(val,it), p=exP(it.id);
+  if(X.kind==='mock'){
+    const pts=sc===1?1:(sc===.5&&it.t.spell?.5:0); X.pts+=pts; X.answers.push({id:it.id,ans:val.trim(),pts});
+    if(pts>0){fireAttack(()=>{setWolfClass('hit');sfx.hit();sparks(76,45,pts===1?14:6);const h=$('#hp');if(h)h.style.width=(100-X.pts/X.q.length*100)+'%'})}
+    else {setWolfClass('block');sfx.growl()}
+    $('#bcard').innerHTML=`<div class="fb ok" style="opacity:.8">Weiter…</div>`;
+    setTimeout(()=>{if(!X)return; X.pos++; if(X.pos>=X.q.length) examMockEnd(); else examAsk()},900);
+    return;
+  }
+  if(sc===1){
+    fireAttack(()=>{setWolfClass('gone',0);sparks(78,50,14);popText('TREFFER!','#ffd75e')});
+    if(!X.miss[it.id]){p.b=Math.min(3,p.b+1)}
+    X.right++; X.teeth++; S.teeth++; S.defeated++; save();
+    $('#bcard').innerHTML=`<div class="fb ok">💥 Richtig! +1 🦷</div><div class="sol xsol">${exSentence(it)}</div>${/(^|\s)i(['’\s]|$)/.test(val)?'<p class="muted" style="text-align:center">Denk dran: <b>I</b> schreibt man immer groß.</p>':''}`;
+    setTimeout(()=>{if(!X)return; X.pos++; if(X.pos>=X.q.length) examEnd('clear'); else examAsk()},/(^|\s)i(['’\s]|$)/.test(val)?2600:1500);
+  } else {
+    p.w++; p.b=0; X.wrong++; if(!X.errs.includes(it.id)) X.errs.push(it.id);
+    if(!X.miss[it.id]){X.miss[it.id]=1; X.q.splice(Math.min(X.q.length,X.pos+4),0,it)}
+    save(); setWolfClass('jump'); sfx.growl();
+    $('#bcard').innerHTML=`<div class="fb bad">${sc===.5&&it.t.spell?'Fast! Ein Buchstabe stimmt nicht.':'🐺 Der Werwolf springt näher!'} Du hast geschrieben: <b>${esc(val.trim())}</b></div>
+      <div class="sol xsol">${exSentence(it,'gp bad')}</div>
+      <p class="muted" style="text-align:center">Merke: ${esc(it.t.tip)}</p>
+      <button class="btn primary big" data-a="xnext">Weiter</button>`;
+  }
+}
+function examNext(){if(!X)return; X.pos++; if(X.pos>=X.q.length) examEnd('clear'); else examAsk()}
+function examEnd(reason){
+  if(!X) return; const x=X; X=null; const n=x.right+x.wrong;
+  const mins=(Date.now()-x.start)/60000, rec=dayRec(); rec.mins=Math.round(((rec.mins||0)+mins)*10)/10;
+  if(n>=8||reason==='clear'){rec.done=true; rec.exam=true}
+  const msgs=checkUnlocks(); save(); if(reason==='clear') sfx.win();
+  const errs=x.errs.map(id=>exAll().find(i=>i.id===id)).filter(Boolean);
+  modal(`<h2>${reason==='clear'?'Runde geschafft! 🎉':'Runde beendet'}</h2>
+    <div class="grid2" style="margin:12px 0"><div class="card"><h1>${x.right}</h1>richtig</div><div class="card"><h1>+${x.teeth}</h1>Zähne 🦷</div></div>
+    ${errs.length?`<h3>Das kommt wieder dran</h3><div class="wordlist" style="text-align:left">${errs.map(i=>`<div class="wl"><span>${exSentence(i)}</span></div>`).join('')}</div>`:(n?'<p>Kein einziger Fehler. Stark!</p>':'')}
+    ${msgs.map(m=>`<p style="font-size:20px">${m}</p>`).join('')}
+    <button class="btn primary big" style="margin-top:12px" data-a="xback">Zurück zur Höhle</button>`);
+}
+function examMockStart(){
+  exS(); const ts=exTopics(); if(!ts.length){toast('Es ist kein Thema eingeschaltet.');return}
+  const picked=ts.map(t=>shuffle(exItems(t)).slice(0,3));
+  const easy=picked.map(a=>a[0]).sort((a,b)=>exP(b.id).b-exP(a.id).b).slice(0,3); // Aufwärmen mit Sicherem
+  const rest=shuffle(picked.flat().filter(i=>!easy.includes(i)));
+  X={kind:'mock',q:[...easy,...rest],pos:0,pts:0,answers:[],start:Date.now(),phase:'ask'};
+  modal(`<h2>👹 Probearbeit</h2><div style="height:200px;margin:10px auto;aspect-ratio:200/240">${wolfSVG(EXAM.reg,{boss:true})}</div>
+    <p>Wie in der echten Arbeit: <b>${X.q.length} Aufgaben</b> aus allen Themen, keine Hilfe, die Lösung siehst du erst am Ende.</p>
+    <p class="muted">Lies jede Aufgabe ganz. Wenn du eine nicht weißt: raten, weitermachen, nicht hängen bleiben.</p>
+    <div class="grid2" style="margin-top:10px"><button class="btn" data-a="xcancel">Später</button><button class="btn primary" data-a="xmockgo">⚔️ Los</button></div>`);
+  sfx.roar();
+}
+function examMockEnd(){
+  clearInterval(X.iv); const x=X; X=null;
+  const max=x.q.length, pct=x.pts/max, grade=gradeOf(pct), won=grade<=2, secs=Math.round((Date.now()-x.start)/1000);
+  const by={};
+  x.answers.forEach((a,k)=>{const it=x.q[k], p=exP(it.id); const b=by[it.t.id]||(by[it.t.id]=[0,0]); b[0]+=a.pts; b[1]++;
+    if(a.pts===1) p.b=Math.min(3,p.b+1); else {p.w++; p.b=0}});
+  const g=(won?15:5)+(x.pts===max?10:0); S.teeth+=g;
+  S.exam.mocks.push({date:today(),pts:x.pts,max,grade,secs,by});
+  const rec=dayRec(); rec.done=true; rec.exam=true; rec.mins=Math.round(((rec.mins||0)+secs/60)*10)/10;
+  const msgs=checkUnlocks(); save();
+  if(won){setWolfClass('gone',0);sparks(76,45,30);sfx.win()} else sfx.roar();
+  const rows=x.answers.map((a,k)=>{const it=x.q[k];return `<tr><td>${a.pts===1?'✅':a.pts?'🟡':'❌'}</td><td>${esc(it.q.replace('___','＿＿'))}<br><span class="muted small">Du: ${esc(a.ans)}</span></td><td>${a.pts===1?'':`<b>${esc(exFirst(it))}</b>`}</td></tr>`}).join('');
+  const tops=EXAM.topics.filter(t=>by[t.id]).map(t=>`<tr><td>${t.icon} ${esc(t.name)}</td><td>${fmtPts(by[t.id][0])} / ${by[t.id][1]}</td></tr>`).join('');
+  setTimeout(()=>modal(`<h2>${won?`${esc(EXAM.reg.boss)} ist besiegt!`:`${esc(EXAM.reg.boss)} ist entkommen…`}</h2>
+    <div class="grid2" style="margin:12px 0"><div class="card"><h1>Note ${grade}</h1>${fmtPts(x.pts)} von ${max} Punkten</div><div class="card"><h1>+${g}</h1>Zähne 🦷 · ${Math.floor(secs/60)}:${String(secs%60).padStart(2,'0')} Min</div></div>
+    <p>${won?'Stark! So kann die Arbeit kommen.':'Genau dafür ist die Probe da. Die Fehler unten warten jetzt in der Fehler-Jagd auf dich.'}</p>
+    <table style="text-align:left">${tops}</table>
+    <table style="text-align:left;margin-top:10px"><tr><th></th><th>Aufgabe</th><th>Richtig</th></tr>${rows}</table>
+    ${msgs.map(m=>`<p style="font-size:20px">${m}</p>`).join('')}
+    <button class="btn primary big" style="margin-top:12px" data-a="xback">Zurück zur Höhle</button>`),won?900:400);
+}
+function examParents(){ // Karte im Elternbereich
+  if(!examActive()&&!(S.exam?.mocks||[]).length) return '';
+  exS(); const m=S.exam.mocks;
+  return `<div class="card"><h3>Klassenarbeit: ${esc(EXAM.title)} am ${EXAM.date.split('-').reverse().join('.')}</h3>
+    <table><tr><th>Thema</th><th>sicher</th><th>Fehler</th><th>aktiv</th></tr>${EXAM.topics.map(t=>{const its=exItems(t);const w=its.reduce((s,i)=>s+(S.exam.prog[i.id]?.w||0),0);const off=S.exam.off.includes(t.id);
+      return `<tr><td>${t.icon} ${esc(t.name)}</td><td>${exDone(t)} / ${its.length}</td><td>${w}</td><td><button class="btn" data-a="xtoggle" data-id="${t.id}">${off?'aus':'an'}</button></td></tr>`}).join('')}</table>
+    <p class="muted small">Themen, die nicht drankommen, hier ausschalten. Grammatik wird streng gewertet (richtig oder falsch). Bei Familie und Adjektiven gibt ein falscher Buchstabe in der Probearbeit einen halben Punkt.</p>
+    ${m.length?`<h3 style="margin-top:10px">Probearbeiten</h3><table><tr><th>Datum</th><th>Punkte</th><th>Note</th><th>Zeit</th></tr>${[...m].reverse().map(b=>`<tr><td>${b.date.split('-').reverse().join('.')}</td><td>${fmtPts(b.pts)} / ${b.max}</td><td>${b.grade}</td><td>${Math.floor(b.secs/60)}:${String(b.secs%60).padStart(2,'0')}</td></tr>`).join('')}</table>`:'<p class="muted">Noch keine Probearbeit.</p>'}</div>`;
+}
+
 /* ======================= Aktionen ======================= */
 function act(a,ds={}){
   switch(a){
@@ -1057,6 +1436,18 @@ function act(a,ds={}){
     case 'bossgo': closeModal(); go('boss'); break;
     case 'bsubmit': bossSubmit(); break;
     case 'bquit': clearInterval(B?.iv); B=null; go('home'); break;
+    // Klassenarbeit
+    case 'xstart': examStart(ds.m,ds.id); break;
+    case 'xrule': examRule(ds.id); break;
+    case 'xclose': closeModal(); break;
+    case 'xsubmit': examSubmit(); break;
+    case 'xnext': examNext(); break;
+    case 'xquit': if(X?.kind==='mock'){clearInterval(X.iv);X=null;go('exam')} else examEnd('quit'); break;
+    case 'xback': closeModal(); go('exam'); break;
+    case 'xmock': examMockStart(); break;
+    case 'xmockgo': closeModal(); if(X){X.start=Date.now(); go('examrun')} break;
+    case 'xcancel': closeModal(); X=null; break;
+    case 'xtoggle': {const o=exS().off,i=o.indexOf(ds.id); if(i>=0)o.splice(i,1); else o.push(ds.id); save(); render()} break;
     // Shop
     case 'tab': P.tab=ds.t; render(); break;
     case 'upg': {const lv=S.attackLv[ds.id]||1,c=UPGRADE_COST[lv]; if(c&&S.teeth>=c){S.teeth-=c;S.attackLv[ds.id]=lv+1;save();sfx.coin();toast('Attacke verstärkt! 💪');render()}} break;
